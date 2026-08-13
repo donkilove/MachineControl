@@ -5,11 +5,11 @@ namespace MachineControl;
 
 /// <summary>
 /// 机台移动执行器：按区域发送 AT+IO 指令序列并等待 ACK（"ok"），
-/// 成功后等待到位时间。整轮失败重试 2 次。
+/// 成功后等待到位时间。整轮最多尝试 2 次（含首次），失败重试间隔 1s。
 /// </summary>
 public sealed class MachineWorker
 {
-    private const int MaxRetries = 2;
+    private const int MaxAttempts = 2;
     private const int RetryDelayMs = 1000;
     private const int AckWindowMs = 2000;
     private const int ReadPollMs = 100;
@@ -39,12 +39,12 @@ public sealed class MachineWorker
                 nameof(request), request.SettleSeconds, "SettleSeconds 必须为有限非负数（秒）");
         }
 
-        for (var retry = 0; retry < MaxRetries; retry++)
+        for (var retry = 0; retry < MaxAttempts; retry++)
         {
             ISerialChannel? ser = null;
             try
             {
-                _status?.Invoke($"尝试打开机台控制串口 {request.MachineSerial}，第 {retry + 1}/{MaxRetries} 次");
+                _status?.Invoke($"尝试打开机台控制串口 {request.MachineSerial}，第 {retry + 1}/{MaxAttempts} 次");
                 ser = _channelFactory();
                 ser.Open(request.MachineSerial, _baudRate);
 
@@ -66,7 +66,7 @@ public sealed class MachineWorker
                 {
                     // 本轮失败：重试（原版 continue → 触发 finally 关闭串口）。
                     // 审核修复：按协议规格 §3.3，ACK 失败同样需要 1s 重试间隔（此前仅异常路径有间隔）
-                    if (retry < MaxRetries - 1)
+                    if (retry < MaxAttempts - 1)
                     {
                         await DelayOrCancel(ct);
                     }
@@ -86,7 +86,7 @@ public sealed class MachineWorker
             catch (Exception e)
             {
                 _status?.Invoke($"机台控制错误: {e.Message}");
-                if (retry >= MaxRetries - 1)
+                if (retry >= MaxAttempts - 1)
                 {
                     return false;
                 }
