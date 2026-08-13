@@ -18,7 +18,7 @@
 ## 安装
 
 ```bash
-dotnet add package MachineControl --version 0.1.0 \
+dotnet add package MachineControl --version 0.2.0 \
   --source "https://nuget.pkg.github.com/donkilove/index.json"
 ```
 
