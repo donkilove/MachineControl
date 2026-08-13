@@ -32,6 +32,9 @@ jobs:
       - name: Test
         run: dotnet test MachineControl.sln --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"
 
+      - name: Pack
+        run: dotnet pack src/MachineControl/MachineControl.csproj --configuration Release --no-build --output pack-out
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
