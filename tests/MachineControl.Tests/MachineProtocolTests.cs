@@ -34,4 +34,18 @@ public class MachineProtocolTests
     [InlineData(null)]
     public void IsAck_NonOk_False(string? reply)
         => Assert.False(MachineProtocol.IsAck(reply));
+
+    // ---- 审核修复：序列暴露为只读视图，杜绝 AreaASequence[0] = "x" 全局篡改 ----
+
+    [Fact]
+    public void Sequences_ExposeReadOnlyViews()
+    {
+        var flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static;
+        Assert.Equal(typeof(IReadOnlyList<string>),
+            typeof(MachineProtocol).GetField("AreaASequence", flags)!.FieldType);
+        Assert.Equal(typeof(IReadOnlyList<string>),
+            typeof(MachineProtocol).GetField("AreaBSequence", flags)!.FieldType);
+        Assert.IsAssignableFrom<IReadOnlyList<string>>(MachineProtocol.GetSequence(true));
+        Assert.IsAssignableFrom<IReadOnlyList<string>>(MachineProtocol.GetSequence(false));
+    }
 }

@@ -6,14 +6,16 @@ namespace MachineControl;
 /// </summary>
 public static class MachineProtocol
 {
-    /// <summary>A 区移动指令序列</summary>
-    public static readonly string[] AreaASequence = { "AT+IO=00", "AT+IO=01" };
+    /// <summary>A 区移动指令序列（只读视图，防调用方篡改）</summary>
+    public static readonly IReadOnlyList<string> AreaASequence
+        = Array.AsReadOnly(new[] { "AT+IO=00", "AT+IO=01" });
 
-    /// <summary>B 区移动指令序列</summary>
-    public static readonly string[] AreaBSequence = { "AT+IO=00", "AT+IO=08" };
+    /// <summary>B 区移动指令序列（只读视图，防调用方篡改）</summary>
+    public static readonly IReadOnlyList<string> AreaBSequence
+        = Array.AsReadOnly(new[] { "AT+IO=00", "AT+IO=08" });
 
-    /// <summary>取指定区域的指令序列</summary>
-    public static string[] GetSequence(bool isAreaA)
+    /// <summary>取指定区域的指令序列（只读视图）</summary>
+    public static IReadOnlyList<string> GetSequence(bool isAreaA)
         => isAreaA ? AreaASequence : AreaBSequence;
 
     /// <summary>指令行：追加 \r\n</summary>
