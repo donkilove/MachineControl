@@ -17,6 +17,12 @@ public sealed class MockSerialChannel : ISerialChannel
     /// <summary>设置后 Open 将抛出 IOException（模拟占用/拒绝访问）</summary>
     public string? OpenError { get; set; }
 
+    /// <summary>最近一次成功 Open 的串口名（未成功打开过为 null）</summary>
+    public string? LastOpenedPort { get; private set; }
+
+    /// <summary>最近一次成功 Open 的波特率（未成功打开过为 null）</summary>
+    public int? LastBaudRate { get; private set; }
+
     public bool IsOpen { get; private set; }
 
     /// <summary>入队一条响应；ReadAvailable 按 FIFO 回放，队列空时返回空串</summary>
@@ -29,6 +35,8 @@ public sealed class MockSerialChannel : ISerialChannel
             throw new IOException(OpenError);
         }
 
+        LastOpenedPort = portName;
+        LastBaudRate = baudRate;
         IsOpen = true;
     }
 
