@@ -51,6 +51,7 @@ public sealed class SerialPortChannel : ISerialChannel
 
         var buf = new byte[n];
         var read = _port.Read(buf, 0, n);
+        // 默认替换策略：非法/残缺字节以 U+FFFD 表示（协议为 ASCII，无实际影响）
         return Encoding.UTF8.GetString(buf, 0, read);
     }
 
