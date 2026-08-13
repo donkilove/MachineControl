@@ -195,4 +195,23 @@ public class MachineWorkerTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await task);
         Assert.False(port.IsOpen);
     }
+
+    // ---- 审核补充：ACK 窗口超时（无任何回复）路径 ----
+
+    [Fact]
+    public async Task MachineWorker_NoReply_TimesOutAndFails()
+    {
+        var port = new MockSerialChannel();   // 队列空 → ReadAvailable 恒为空 → 2s 窗口超时
+        var statuses = new List<string>();
+        var worker = new MachineWorker(() => port, statuses.Add);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var ok = await worker.MoveToAreaAsync(NewRequest(), CancellationToken.None);
+        sw.Stop();
+
+        Assert.False(ok);
+        // 两轮：每轮 2s 窗口超时 + 1s 重试间隔 ≈ 5s（留 1s 余量）
+        Assert.True(sw.ElapsedMilliseconds >= 4000, $"两轮超时+间隔应约 5s，实际 {sw.ElapsedMilliseconds}ms");
+        Assert.Contains(statuses, s => s.Contains("超时未收到回复"));
+    }
 }
