@@ -68,7 +68,7 @@ public sealed class MachineWorker
                     // 审核修复：按协议规格 §3.3，ACK 失败同样需要 1s 重试间隔（此前仅异常路径有间隔）
                     if (retry < MaxAttempts - 1)
                     {
-                        await DelayOrCancel(ct);
+                        await Task.Delay(RetryDelayMs, ct);
                     }
 
                     continue;
@@ -91,7 +91,7 @@ public sealed class MachineWorker
                     return false;
                 }
 
-                await DelayOrCancel(ct);
+                await Task.Delay(RetryDelayMs, ct);
             }
             finally
             {
@@ -154,17 +154,5 @@ public sealed class MachineWorker
             ? $"错误：发送指令 {command} 后超时未收到回复"
             : $"错误：收到的回复不是ok，而是：{response}");
         return false;
-    }
-
-    private static async Task DelayOrCancel(CancellationToken ct)
-    {
-        try
-        {
-            await Task.Delay(RetryDelayMs, ct);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
     }
 }
