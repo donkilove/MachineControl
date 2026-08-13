@@ -33,6 +33,7 @@ public sealed class SerialPortChannel : ISerialChannel
 
         var bytes = Encoding.UTF8.GetBytes(text);
         _port.Write(bytes, 0, bytes.Length);
+        _port.BaseStream.Flush();   // 与协议规格 §3.1 "Write + Flush" 对齐
     }
 
     public string ReadAvailable()
