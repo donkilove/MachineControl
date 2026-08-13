@@ -1,0 +1,87 @@
+# MachineControl
+
+[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](https://dotnet.microsoft.com/download/dotnet/8.0)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+基于 .NET 8 的 XYZ 三轴机台串口控制库：A/B 区移动指令序列、ACK 判定与移动执行时序（9600 8N1，AT+IO 协议）。
+
+本库从 [BurnMachineHost](https://github.com/donkilove/BurnMachineHost) 机台烧录上位机中提取并发布为可复用组件，让多个上位机应用可以共享一套经过充分验证的机台控制通信栈，而无需重复维护源代码。
+
+## 功能特性
+
+- **指令序列** —— A 区（`AT+IO=00` → `AT+IO=01`）/ B 区（`AT+IO=00` → `AT+IO=08`）移动指令序列
+- **ACK 判定** —— trim 后大小写不敏感等于 `ok`（与原版 `response.lower() == "ok"` 一致）
+- **移动执行器 `MachineWorker`** —— 逐条指令发送 + ACK 等待（2s 窗口），成功后等待到位时间，整轮失败重试 2 次（含 1s 间隔），协作式取消
+- **回复长度上限** —— 256 字符，防畸形/恶意长帧
+- **可注入串口通道** —— `ISerialChannel` 抽象 + `SerialPortChannel`（System.IO.Ports）真实实现 + `MockSerialChannel` 可编程模拟（离线开发/测试）
+
+## 安装
+
+```bash
+dotnet add package MachineControl --version 0.1.0 \
+  --source "https://nuget.pkg.github.com/donkilove/index.json"
+```
+
+> GitHub Packages 源需要认证，请配置具有 `read:packages` 权限的令牌。
+
+## 快速开始
+
+```csharp
+using MachineControl;
+using MachineControl.Channel;
+
+var worker = new MachineWorker(() => new SerialPortChannel(), Console.WriteLine);
+var ok = await worker.MoveToAreaAsync(
+    new MoveRequest("COM4", IsAreaA: true, SettleSeconds: 2),
+    CancellationToken.None);
+
+Console.WriteLine(ok ? "已移动到 A 区" : "移动失败");
+```
+
+无硬件环境可用 `MockSerialChannel` 离线开发：
+
+```csharp
+var mock = new MockSerialChannel();
+mock.EnqueueResponse("ok\r\n");
+mock.EnqueueResponse("ok\r\n");
+var worker = new MachineWorker(() => mock);
+```
+
+> `SettleSeconds` 由调用方按行程类型传入：进区/复位用 `move_time_enter`，区内位间用 `move_time_between`。
+
+## 协议摘要
+
+| 指令 | 含义 |
+|---|---|
+| `AT+IO=00` | 复位/回零（两区序列的第一步） |
+| `AT+IO=01` | 移动到 A 区（序列第二步） |
+| `AT+IO=08` | 移动到 B 区（序列第二步） |
+| `ok` | 成功 ACK（大小写不敏感） |
+
+完整协议规格见 BurnMachineHost 仓库 `docs/串口协议规格.md` §3。
+
+## 构建与测试
+
+```bash
+dotnet build MachineControl.sln
+dotnet test MachineControl.sln
+```
+
+## 项目结构
+
+```
+MachineControl.sln
+src/MachineControl/            类库（net8.0，NuGet 包 MachineControl）
+├── MachineProtocol.cs         AT+IO 指令序列与 ACK 判定
+├── MoveRequest.cs             移动请求（串口、区域、到位等待秒数）
+├── MachineWorker.cs           移动执行时序
+└── Channel/                   串口通道
+    ├── ISerialChannel.cs      通道抽象（可注入自定义实现）
+    ├── SerialPortChannel.cs   System.IO.Ports 实现
+    └── MockSerialChannel.cs   可编程模拟通道
+tests/MachineControl.Tests/    协议 + 执行器测试（18 个）
+```
+
+## 许可协议
+
+[MIT](LICENSE)

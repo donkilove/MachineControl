@@ -1,0 +1,162 @@
+using System.Text;
+using MachineControl.Channel;
+
+namespace MachineControl;
+
+/// <summary>
+/// 机台移动执行器：按区域发送 AT+IO 指令序列并等待 ACK（"ok"），
+/// 成功后等待到位时间。整轮失败重试 2 次。
+/// </summary>
+public sealed class MachineWorker
+{
+    private const int MaxRetries = 2;
+    private const int RetryDelayMs = 1000;
+    private const int AckWindowMs = 2000;
+    private const int ReadPollMs = 100;
+    private const int MaxAckLength = 256;   // 审核修复：回复长度上限（正常 "ok" 仅 2 字符）
+
+    private readonly Func<ISerialChannel> _channelFactory;
+    private readonly Action<string>? _status;
+    private readonly int _baudRate;
+
+    /// <param name="channelFactory">每次执行新建串口通道的工厂（执行结束即关闭释放）</param>
+    /// <param name="status">可选状态回调（如宿主状态栏）；SDK 独立使用可不传</param>
+    /// <param name="baudRate">机台控制串口波特率（协议为 9600 8N1）</param>
+    public MachineWorker(Func<ISerialChannel> channelFactory, Action<string>? status = null, int baudRate = 9600)
+    {
+        _channelFactory = channelFactory;
+        _status = status;
+        _baudRate = baudRate;
+    }
+
+    public async Task<bool> MoveToAreaAsync(MoveRequest request, CancellationToken ct)
+    {
+        for (var retry = 0; retry < MaxRetries; retry++)
+        {
+            ISerialChannel? ser = null;
+            try
+            {
+                _status?.Invoke($"尝试打开机台控制串口 {request.MachineSerial}，第 {retry + 1}/{MaxRetries} 次");
+                ser = _channelFactory();
+                ser.Open(request.MachineSerial, _baudRate);
+
+                var area = request.IsAreaA ? "A" : "B";
+                _status?.Invoke($"发送{area}区移动指令");
+
+                var sequence = MachineProtocol.GetSequence(request.IsAreaA);
+                var allAcked = true;
+                foreach (var cmd in sequence)
+                {
+                    if (!await SendWithAckAsync(ser, cmd, ct))
+                    {
+                        allAcked = false;
+                        break;
+                    }
+                }
+
+                if (!allAcked)
+                {
+                    // 本轮失败：重试（原版 continue → 触发 finally 关闭串口）。
+                    // 审核修复：按协议规格 §3.3，ACK 失败同样需要 1s 重试间隔（此前仅异常路径有间隔）
+                    if (retry < MaxRetries - 1)
+                    {
+                        await DelayOrCancel(ct);
+                    }
+
+                    continue;
+                }
+
+                _status?.Invoke("机台控制指令执行成功");
+                _status?.Invoke($"等待移动到位时间: {request.SettleSeconds}秒");
+                await Task.Delay(TimeSpan.FromSeconds(request.SettleSeconds), ct);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                _status?.Invoke($"机台控制错误: {e.Message}");
+                if (retry >= MaxRetries - 1)
+                {
+                    return false;
+                }
+
+                await DelayOrCancel(ct);
+            }
+            finally
+            {
+                if (ser is { IsOpen: true })
+                {
+                    ser.Close();
+                    _status?.Invoke($"已关闭机台控制串口 {request.MachineSerial}");
+                }
+
+                ser?.Dispose();
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<bool> SendWithAckAsync(ISerialChannel ser, string command, CancellationToken ct)
+    {
+        ser.ResetInputBuffer();
+        _status?.Invoke($"发送指令: {command}");
+        ser.Write(MachineProtocol.BuildLine(command));
+
+        var sb = new StringBuilder();
+        var start = DateTime.UtcNow;
+        while (DateTime.UtcNow - start < TimeSpan.FromMilliseconds(AckWindowMs))
+        {
+            ct.ThrowIfCancellationRequested();
+            var chunk = ser.ReadAvailable();
+            if (chunk.Length > 0)
+            {
+                sb.Append(chunk);
+                if (sb.Length > MaxAckLength)
+                {
+                    // 审核修复：回复长度上限，防畸形/恶意长帧刷爆窗口
+                    _status?.Invoke("错误：回复长度超限");
+                    return false;
+                }
+
+                if (chunk.Contains('\n'))
+                {
+                    break;
+                }
+            }
+
+            await Task.Delay(ReadPollMs, ct);
+        }
+
+        var response = sb.ToString().Trim();
+        if (response.Length > 0)
+        {
+            _status?.Invoke($"收到回复: {response}");
+        }
+
+        if (MachineProtocol.IsAck(response))
+        {
+            return true;
+        }
+
+        _status?.Invoke(response.Length == 0
+            ? $"错误：发送指令 {command} 后超时未收到回复"
+            : $"错误：收到的回复不是ok，而是：{response}");
+        return false;
+    }
+
+    private static async Task DelayOrCancel(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(RetryDelayMs, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+    }
+}
