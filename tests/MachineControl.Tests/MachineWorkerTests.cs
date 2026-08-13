@@ -214,4 +214,28 @@ public class MachineWorkerTests
         Assert.True(sw.ElapsedMilliseconds >= 4000, $"两轮超时+间隔应约 5s，实际 {sw.ElapsedMilliseconds}ms");
         Assert.Contains(statuses, s => s.Contains("超时未收到回复"));
     }
+
+    // ---- 审核修复：入口参数校验（非法输入立即抛参，不得走重试） ----
+
+    [Fact]
+    public async Task MoveToAreaAsync_NullRequest_ThrowsArgumentNull()
+    {
+        var worker = new MachineWorker(() => new MockSerialChannel());
+
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => worker.MoveToAreaAsync(null!, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public async Task MoveToAreaAsync_InvalidSettleSeconds_ThrowsArgumentOutOfRange(double settleSeconds)
+    {
+        var worker = new MachineWorker(() => new MockSerialChannel());
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => worker.MoveToAreaAsync(new MoveRequest(MachineSerial, true, settleSeconds), CancellationToken.None));
+    }
 }

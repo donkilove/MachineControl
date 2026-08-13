@@ -31,6 +31,14 @@ public sealed class MachineWorker
 
     public async Task<bool> MoveToAreaAsync(MoveRequest request, CancellationToken ct)
     {
+        // 审核修复：入口参数校验——非法输入立即抛参，不得以"重试耗尽后 false"掩盖调用方错误
+        ArgumentNullException.ThrowIfNull(request);
+        if (!double.IsFinite(request.SettleSeconds) || request.SettleSeconds < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request), request.SettleSeconds, "SettleSeconds 必须为有限非负数（秒）");
+        }
+
         for (var retry = 0; retry < MaxRetries; retry++)
         {
             ISerialChannel? ser = null;
