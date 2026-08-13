@@ -108,4 +108,25 @@ public class MachineWorkerTests
 
         Assert.False(ok);
     }
+
+    // ---- 审核补充：重试恢复路径（第一轮失败、第二轮成功） ----
+
+    [Fact]
+    public async Task MachineWorker_FirstRoundAckFails_SecondRoundSucceeds()
+    {
+        var port = new MockSerialChannel();
+        port.EnqueueResponse("ERROR\r\n");   // 第一轮：第一条 ACK 失败 → 整轮重试
+        port.EnqueueResponse("ok\r\n");      // 第二轮：全部成功
+        port.EnqueueResponse("ok");
+        var worker = new MachineWorker(() => port);
+
+        var ok = await worker.MoveToAreaAsync(NewRequest(), CancellationToken.None);
+
+        Assert.True(ok);
+        // 第一轮：第一条 ACK 失败即中止（写 1 条）；第二轮成功（写 2 条）→ 共 3 条
+        Assert.Equal(3, port.Writes.Count);
+        Assert.Equal("AT+IO=00\r\n", port.Writes[0]);
+        Assert.Equal("AT+IO=00\r\n", port.Writes[1]);
+        Assert.Equal("AT+IO=01\r\n", port.Writes[2]);
+    }
 }
