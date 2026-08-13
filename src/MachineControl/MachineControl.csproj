@@ -12,6 +12,8 @@
     <PackageId>MachineControl</PackageId>
     <Authors>donkilove</Authors>
     <Description>A .NET library for the XYZ gantry machine AT+IO serial control protocol (9600 8N1): area move command sequences, ACK checking, and the move execution worker.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/donkilove/MachineControl</RepositoryUrl>
     <PackageTags>serial;machine;gantry;atio;iot</PackageTags>
@@ -21,6 +23,11 @@
 
   <ItemGroup>
     <PackageReference Include="System.IO.Ports" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
