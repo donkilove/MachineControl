@@ -129,4 +129,70 @@ public class MachineWorkerTests
         Assert.Equal("AT+IO=00\r\n", port.Writes[1]);
         Assert.Equal("AT+IO=01\r\n", port.Writes[2]);
     }
+
+    // ---- 审核补充：取消契约（OCE 重抛 + 串口关闭，不得误判为失败重试） ----
+
+    [Fact]
+    public async Task MachineWorker_CancelDuringAckWait_ThrowsOperationCanceledAndClosesPort()
+    {
+        var port = new MockSerialChannel();
+        port.EnqueueResponse("ok\r\n");   // 第一条 ACK 成功
+        // 第二条无回复 → 2s ACK 窗口等待中取消
+        var cts = new CancellationTokenSource();
+        var worker = new MachineWorker(() => port);
+
+        var task = worker.MoveToAreaAsync(NewRequest(), cts.Token);
+        while (port.Writes.Count < 2)
+        {
+            await Task.Delay(10);
+        }
+
+        cts.Cancel();
+        // Task.Delay 取消抛 TaskCanceledException（OCE 子类）：语义为取消，非失败重试
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await task);
+        Assert.False(port.IsOpen);   // finally 中已关闭
+    }
+
+    [Fact]
+    public async Task MachineWorker_CancelDuringRetryDelay_ThrowsOperationCanceledAndClosesPort()
+    {
+        var port = new MockSerialChannel();
+        port.EnqueueResponse("ERROR\r\n");   // 第一轮失败 → 进入 1s 重试间隔
+        var cts = new CancellationTokenSource();
+        var worker = new MachineWorker(() => port);
+
+        var task = worker.MoveToAreaAsync(NewRequest(), cts.Token);
+        while (port.Writes.Count < 1)
+        {
+            await Task.Delay(10);
+        }
+
+        await Task.Delay(100);   // 等待 ACK 失败结算并进入重试间隔
+        cts.Cancel();
+        // Task.Delay 取消抛 TaskCanceledException（OCE 子类）：语义为取消，非失败重试
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await task);
+        Assert.False(port.IsOpen);
+    }
+
+    [Fact]
+    public async Task MachineWorker_CancelDuringSettleWait_ThrowsOperationCanceledAndClosesPort()
+    {
+        var port = new MockSerialChannel();
+        port.EnqueueResponse("ok\r\n");
+        port.EnqueueResponse("ok");
+        var cts = new CancellationTokenSource();
+        var worker = new MachineWorker(() => port);
+
+        var task = worker.MoveToAreaAsync(NewRequest(settleSeconds: 30), cts.Token);
+        while (port.Writes.Count < 2)
+        {
+            await Task.Delay(10);
+        }
+
+        await Task.Delay(50);   // 进入到位等待
+        cts.Cancel();
+        // Task.Delay 取消抛 TaskCanceledException（OCE 子类）：语义为取消，非失败重试
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await task);
+        Assert.False(port.IsOpen);
+    }
 }
