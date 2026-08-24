@@ -1,0 +1,45 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Validate tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VER=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/MachineControl/MachineControl.csproj)
+          if [ "$TAG" != "$VER" ]; then
+            echo "::error::tag v${TAG} 与 csproj 版本 ${VER} 不一致，拒绝发布"
+            exit 1
+          fi
+
+      - name: Restore
+        run: dotnet restore MachineControl.sln
+
+      - name: Test
+        run: dotnet test MachineControl.sln --configuration Release --no-restore
+
+      - name: Pack
+        run: dotnet pack src/MachineControl/MachineControl.csproj --configuration Release --no-restore --output out
+
+      - name: Push to GitHub Packages
+        run: |
+          dotnet nuget push out/*.nupkg \
+            --source https://nuget.pkg.github.com/donkilove/index.json \
+            --api-key ${{ secrets.GITHUB_TOKEN }} \
+            --skip-duplicate
