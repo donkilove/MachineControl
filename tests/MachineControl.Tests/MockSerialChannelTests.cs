@@ -26,4 +26,39 @@ public class MockSerialChannelTests
         Assert.False(mock.IsOpen);
         Assert.Null(mock.LastOpenedPort);   // 打开失败不记录
     }
+
+    // ---- 审计 MC-03：ResetInputBuffer 对齐真实 DiscardInBuffer（丢弃已到达未读数据） ----
+
+    [Fact]
+    public void ResetInputBuffer_DiscardsPreloadedResidual()
+    {
+        var mock = new MockSerialChannel();
+        mock.PreloadResidual("残留\r\n");
+
+        mock.ResetInputBuffer();
+
+        Assert.Equal("", mock.ReadAvailable());   // 残留被丢弃（真实 DiscardInBuffer 语义）
+    }
+
+    [Fact]
+    public void ResetInputBuffer_KeepsFutureResponses()
+    {
+        var mock = new MockSerialChannel();
+        mock.EnqueueResponse("ok\r\n");
+
+        mock.ResetInputBuffer();
+
+        Assert.Equal("ok\r\n", mock.ReadAvailable());   // 未来应答不受影响
+    }
+
+    [Fact]
+    public void ReadAvailable_ReturnsResidualBeforeResponses()
+    {
+        var mock = new MockSerialChannel();
+        mock.PreloadResidual("旧数据");
+        mock.EnqueueResponse("新应答");
+
+        Assert.Equal("旧数据", mock.ReadAvailable());   // 同一接收缓冲区：先到先读
+        Assert.Equal("新应答", mock.ReadAvailable());
+    }
 }

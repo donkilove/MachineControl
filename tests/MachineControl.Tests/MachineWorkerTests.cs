@@ -305,4 +305,21 @@ public class MachineWorkerTests
         Assert.Equal(2, port.Writes.Count);
         Assert.False(port.IsOpen);
     }
+
+    // ---- 审计 MC-03：串口残留数据不得干扰 ACK 判定（ResetInputBuffer 对齐 DiscardInBuffer） ----
+
+    [Fact]
+    public async Task MachineWorker_ResidualGarbage_DoesNotAffectRealAck()
+    {
+        var port = new MockSerialChannel();
+        port.PreloadResidual("garbage\r\n");   // 会话开始前缓冲区已有乱码残留
+        port.EnqueueResponse("ok\r\n");
+        port.EnqueueResponse("ok");
+        var worker = new MachineWorker(() => port);
+
+        var ok = await worker.MoveToAreaAsync(NewRequest(), CancellationToken.None);
+
+        Assert.True(ok);                        // 残留被每条指令前的 ResetInputBuffer 清除
+        Assert.Equal(2, port.Writes.Count);     // 无残留干扰 → 首轮即成功，无重试（残留若存活则首轮失败触发重试共 3 条）
+    }
 }

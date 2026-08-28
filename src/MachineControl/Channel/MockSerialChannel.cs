@@ -10,6 +10,7 @@ public sealed class MockSerialChannel : ISerialChannel
 {
     private readonly Queue<string> _responses = new();
     private readonly List<string> _writes = new();
+    private string _residual = "";   // 模拟"已到达但未读"的接收缓冲残留（会话开始前缓冲区已有数据）
 
     /// <summary>已写入的全部文本（按写入顺序）</summary>
     public IReadOnlyList<string> Writes => _writes;
@@ -28,6 +29,10 @@ public sealed class MockSerialChannel : ISerialChannel
     /// <summary>入队一条响应；ReadAvailable 按 FIFO 回放，队列空时返回空串</summary>
     public void EnqueueResponse(string response) => _responses.Enqueue(response);
 
+    /// <summary>预置"已到达但未读"的接收残留（模拟会话开始前缓冲区已有数据，如乱码/上次残留）。
+    /// 与 EnqueueResponse 的区别：残留会被 ResetInputBuffer 丢弃，未来应答不受影响。</summary>
+    public void PreloadResidual(string data) => _residual += data;
+
     public void Open(string portName, int baudRate)
     {
         if (OpenError is not null)
@@ -42,10 +47,24 @@ public sealed class MockSerialChannel : ISerialChannel
 
     public void Write(string text) => _writes.Add(text);
 
-    public string ReadAvailable() => _responses.Count > 0 ? _responses.Dequeue() : "";
+    public string ReadAvailable()
+    {
+        // 真实语义：残留与新应答同在接收缓冲区，先到先读（残留优先、一次读完）
+        if (_residual.Length > 0)
+        {
+            var head = _residual;
+            _residual = "";
+            return head;
+        }
+
+        return _responses.Count > 0 ? _responses.Dequeue() : "";
+    }
 
     public void ResetInputBuffer()
     {
+        // 审计 MC-03：对齐真实 SerialPortChannel.DiscardInBuffer——丢弃"已到达未读"的
+        // 接收残留，不影响未来应答（EnqueueResponse 预置的响应队列）
+        _residual = "";
     }
 
     public void Close() => IsOpen = false;
