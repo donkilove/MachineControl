@@ -20,13 +20,39 @@ public sealed class MachineWorker
     private readonly int _baudRate;
 
     /// <param name="channelFactory">每次执行新建串口通道的工厂（执行结束即关闭释放）</param>
-    /// <param name="status">可选状态回调（如宿主状态栏）；SDK 独立使用可不传</param>
+    /// <param name="status">可选状态回调（如宿主状态栏）；SDK 独立使用可不传。
+    /// 回调异常与机台控制流隔离：抛出的异常被吞掉（仅 Debug 记录），绝不当作机台错误。</param>
     /// <param name="baudRate">机台控制串口波特率（协议为 9600 8N1）</param>
     public MachineWorker(Func<ISerialChannel> channelFactory, Action<string>? status = null, int baudRate = 9600)
     {
         _channelFactory = channelFactory;
-        _status = status;
+        _status = WrapStatusCallback(status);
         _baudRate = baudRate;
+    }
+
+    /// <summary>
+    /// 宿主状态回调与控制流隔离（审计 MC-01）：回调（UI/日志）异常不得被当作机台错误，
+    /// 否则指令已全部 ACK 后回调抛异常会触发整轮重试、重发 AT+IO 移动序列（物理动作重放），
+    /// finally 内回调抛异常还会覆盖返回值。仅 Debug 记录便于宿主排查自身缺陷，Release 零开销。
+    /// </summary>
+    private static Action<string>? WrapStatusCallback(Action<string>? status)
+    {
+        if (status is null)
+        {
+            return null;
+        }
+
+        return message =>
+        {
+            try
+            {
+                status(message);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MachineControl] 状态回调异常已隔离: {ex}");
+            }
+        };
     }
 
     public async Task<bool> MoveToAreaAsync(MoveRequest request, CancellationToken ct)

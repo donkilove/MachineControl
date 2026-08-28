@@ -238,4 +238,71 @@ public class MachineWorkerTests
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => worker.MoveToAreaAsync(new MoveRequest(MachineSerial, true, settleSeconds), CancellationToken.None));
     }
+
+    // ---- 审计 MC-01：宿主状态回调异常隔离（回调抛异常不得被当作机台错误） ----
+
+    [Fact]
+    public async Task MachineWorker_StatusCallbackThrowsOnSuccessMessage_DoesNotRetry()
+    {
+        var port = new MockSerialChannel();
+        port.EnqueueResponse("ok\r\n");
+        port.EnqueueResponse("ok");
+        // 宿主回调（UI/日志）在"机台控制指令执行成功"时抛异常——最危险的时序：
+        // 指令已全部 ACK，若被 catch 当机台错误将整轮重试、重发移动序列（物理动作重放）
+        var worker = new MachineWorker(() => port,
+            s => { if (s.Contains("机台控制指令执行成功")) throw new InvalidOperationException("UI boom"); });
+
+        var ok = await worker.MoveToAreaAsync(NewRequest(), CancellationToken.None);
+
+        Assert.True(ok);                        // 回调异常不影响成功判定
+        Assert.Equal(2, port.Writes.Count);     // 无重试重发（仅首轮 AT+IO=00/01 各一次）
+        Assert.False(port.IsOpen);              // 串口正常关闭
+    }
+
+    [Fact]
+    public async Task MachineWorker_StatusCallbackThrowsOnOpenMessage_StillSucceeds()
+    {
+        var port = new MockSerialChannel();
+        port.EnqueueResponse("ok\r\n");
+        port.EnqueueResponse("ok");
+        // 回调在第一条状态消息（尝试打开串口）即抛异常：不得中断打开/发送流程
+        var worker = new MachineWorker(() => port, _ => throw new InvalidOperationException("UI boom"));
+
+        var ok = await worker.MoveToAreaAsync(NewRequest(), CancellationToken.None);
+
+        Assert.True(ok);
+        Assert.Equal(2, port.Writes.Count);
+        Assert.False(port.IsOpen);
+    }
+
+    [Fact]
+    public async Task MachineWorker_StatusCallbackThrowsInErrorPath_ReturnsFalseWithoutEscaping()
+    {
+        var port = new MockSerialChannel { OpenError = "拒绝访问" };
+        // 回调在 catch 内（"机台控制错误"消息）也抛异常：不得从 catch 逃逸，
+        // 错误处理路径本身必须保持有效（两轮 Open 失败后正常返回 false）
+        var worker = new MachineWorker(() => port,
+            s => { if (s.Contains("机台控制错误")) throw new InvalidOperationException("UI boom"); });
+
+        var ok = await worker.MoveToAreaAsync(NewRequest(), CancellationToken.None);
+
+        Assert.False(ok);                       // 不抛异常逃逸，按机台失败正常返回
+    }
+
+    [Fact]
+    public async Task MachineWorker_StatusCallbackThrowsInFinally_StillReturnsResult()
+    {
+        var port = new MockSerialChannel();
+        port.EnqueueResponse("ok\r\n");
+        port.EnqueueResponse("ok");
+        // 回调在 finally（"已关闭机台控制串口"）抛异常：不得覆盖 return true 的返回值
+        var worker = new MachineWorker(() => port,
+            s => { if (s.Contains("已关闭机台控制串口")) throw new InvalidOperationException("UI boom"); });
+
+        var ok = await worker.MoveToAreaAsync(NewRequest(), CancellationToken.None);
+
+        Assert.True(ok);                        // finally 内回调异常被隔离，返回值不受影响
+        Assert.Equal(2, port.Writes.Count);
+        Assert.False(port.IsOpen);
+    }
 }
