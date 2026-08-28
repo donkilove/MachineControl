@@ -61,7 +61,7 @@ public sealed class MachineWorker
     {
         // 审核修复：入口参数校验——非法输入立即抛参，不得以"重试耗尽后 false"掩盖调用方错误
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.MachineSerial, nameof(request));   // 审计 MC-07：串口名非空白校验
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.MachineSerial, "request.MachineSerial");   // 审计 MC-07：串口名非空白校验（paramName 指向成员）
         if (!double.IsFinite(request.SettleSeconds) || request.SettleSeconds < 0)
         {
             throw new ArgumentOutOfRangeException(

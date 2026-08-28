@@ -28,9 +28,8 @@ public class SerialPortChannelTests
 
         Assert.ThrowsAny<Exception>(() => channel.Open(NonexistentPort, 9600));
 
-        // 审计 MC-04：打开失败路径不得保留未释放的新建 SerialPort 实例
-        var field = typeof(SerialPortChannel).GetField("_port", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.Null(field!.GetValue(channel));
+        // 审计 MC-04：打开失败路径不得保留未释放的新建 SerialPort 实例（internal 访问器，审计复审替代反射）
+        Assert.Null(channel.Port);
     }
 
     [Fact]
