@@ -90,7 +90,7 @@ src/MachineControl/            类库（net10.0，NuGet 包 MachineControl）
     ├── ISerialChannel.cs      通道抽象（可注入自定义实现）
     ├── SerialPortChannel.cs   System.IO.Ports 实现
     └── MockSerialChannel.cs   可编程模拟通道
-tests/MachineControl.Tests/    协议 + 执行器测试（53 个）
+tests/MachineControl.Tests/    协议 + 执行器测试（58 个）
 ```
 
 ## 许可协议

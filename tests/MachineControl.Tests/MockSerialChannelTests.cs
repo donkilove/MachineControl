@@ -115,5 +115,23 @@ public class MockSerialChannelTests
         Thread.Sleep(300);   // 等待到期
         Assert.Equal("ok\r\n", mock.ReadAvailable());
     }
+
+    // ---- 审计复审：IsOpen 守卫语义（与真实 SerialPortChannel 对齐） ----
+
+    [Fact]
+    public void Write_NotOpen_Throws()
+    {
+        var mock = new MockSerialChannel();   // 未 Open
+
+        Assert.Throws<InvalidOperationException>(() => mock.Write("AT+IO=00\r\n"));
+    }
+
+    [Fact]
+    public void ReadAvailable_NotOpen_ReturnsEmpty()
+    {
+        var mock = new MockSerialChannel();   // 未 Open
+
+        Assert.Equal("", mock.ReadAvailable());
+    }
 }
 

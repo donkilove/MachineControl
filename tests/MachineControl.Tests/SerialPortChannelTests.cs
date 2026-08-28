@@ -1,4 +1,3 @@
-using System.Reflection;
 using MachineControl.Channel;
 using Xunit;
 
