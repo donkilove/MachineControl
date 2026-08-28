@@ -10,6 +10,7 @@ namespace MachineControl.Channel;
 public sealed class SerialPortChannel : ISerialChannel
 {
     private SerialPort? _port;
+    private readonly Utf8StreamDecoder _decoder = new();   // 审计 MC-05b：跨批次 UTF-8 解码状态
 
     public bool IsOpen => _port?.IsOpen ?? false;
 
@@ -61,9 +62,21 @@ public sealed class SerialPortChannel : ISerialChannel
         }
 
         var buf = new byte[n];
-        var read = _port.Read(buf, 0, n);
-        // 默认替换策略：非法/残缺字节以 U+FFFD 表示（协议为 ASCII，无实际影响）
-        return Encoding.UTF8.GetString(buf, 0, read);
+        int read;
+        try
+        {
+            read = _port.Read(buf, 0, n);
+        }
+        catch (TimeoutException)
+        {
+            // 审计 MC-05a：BytesToRead 快照与实际 Read 之间存在竞态，Read 可能阻塞
+            // 至超时（ReadTimeout=1000）。超时 = 当前无数据可读，返回空串让上层按
+            // 正常轮询等待（ACK 窗口耗尽判失败），不得抛异常被当作机台错误触发重试
+            return "";
+        }
+
+        // 审计 MC-05b：跨批次解码（多字节字符拆批不再产生 U+FFFD）
+        return _decoder.Append(buf, read);
     }
 
     public void ResetInputBuffer() => _port?.DiscardInBuffer();
