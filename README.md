@@ -75,6 +75,7 @@ dotnet test MachineControl.sln
 
 ## 版本历史
 
+- **v0.3.1**（2026-08-29）—— 审计修复批次（MC-01~08）：宿主状态回调异常隔离（杜绝物理动作重放）、Mock ResetInputBuffer 对齐 DiscardInBuffer、Open 失败路径释放实例、跨批次 UTF-8 解码、Read 超时不误判机台错误、ACK 等待改滑动窗口（分片迟到可等齐）+ 帧尾快速判定（无换行回复不等满空闲）、MachineSerial 入口校验（53 测试全绿）
 - **v0.3.0**（2026-08-24）—— 升级 .NET 8 → .NET 10（TFM/CI setup-dotnet 10.0.x/依赖）；净版 net10 行为一致（31 测试全绿）
 
 ## 项目结构
