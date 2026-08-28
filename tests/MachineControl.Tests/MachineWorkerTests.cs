@@ -342,4 +342,18 @@ public class MachineWorkerTests
         Assert.True(ok);                        // 分片迟到但间隔 < 空闲阈值 → 等齐后成功
         Assert.Equal(2, port.Writes.Count);     // 首轮即成功，无重试
     }
+
+    // ---- 审计 MC-07：MachineSerial 入口校验（非法输入立即抛参，不走重试） ----
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public async Task MoveToAreaAsync_BlankMachineSerial_ThrowsArgumentException(string? machineSerial)
+    {
+        var worker = new MachineWorker(() => new MockSerialChannel());
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => worker.MoveToAreaAsync(new MoveRequest(machineSerial!, true, MoveTimeEnter), CancellationToken.None));
+    }
 }
