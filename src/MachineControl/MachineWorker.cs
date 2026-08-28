@@ -12,6 +12,7 @@ public sealed class MachineWorker
     private const int MaxAttempts = 2;
     private const int RetryDelayMs = 1000;
     private const int IdleAckWindowMs = 2500;    // 审计 MC-06：空闲超时（距上次收到数据），原 2s 绝对窗口改滑动
+    private const int FrameTailMs = 300;         // 审计 MC-08：无换行回复的帧尾等待窗口（收到数据后无新数据即判定帧结束）
     private const int TotalAckBudgetMs = 4000;   // 审计 MC-06：总预算，防分片持续到达导致无限等待
     private const int ReadPollMs = 100;
     private const int MaxAckLength = 256;   // 审核修复：回复长度上限（正常 "ok" 仅 2 字符）
@@ -165,9 +166,11 @@ public sealed class MachineWorker
                     break;
                 }
             }
-            else if (DateTime.UtcNow - lastData >= TimeSpan.FromMilliseconds(IdleAckWindowMs))
+            else if (DateTime.UtcNow - lastData >= TimeSpan.FromMilliseconds(sb.Length > 0 ? FrameTailMs : IdleAckWindowMs))
             {
-                break;   // 审计 MC-06：空闲超时（距上次收到数据达到阈值）→ 停止等待
+                // 审计 MC-08：收到过数据 → 帧尾窗口判定（无换行回复快速判定，不等满空闲超时）；
+                // 完全无数据 → 空闲超时（无响应）
+                break;
             }
 
             await Task.Delay(ReadPollMs, ct);

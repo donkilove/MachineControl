@@ -329,17 +329,17 @@ public class MachineWorkerTests
     public async Task MachineWorker_SplitAckLateSecondChunk_StillSucceeds()
     {
         var port = new MockSerialChannel();
-        // 机台回复分片迟到：首段 100ms 到达，末段 2.3s 到达（分片间隔 2.2s < 空闲 2.5s，
+        // 机台回复分片迟到：首段 1900ms、末段 2100ms 到达（分片间隔 200ms < 帧尾 300ms，
         // 但末段超过原 2s 绝对窗口——原实现会整体判失败）
-        port.EnqueueDelayedResponse("o", TimeSpan.FromMilliseconds(100));
-        port.EnqueueDelayedResponse("k\r\n", TimeSpan.FromMilliseconds(2300));
-        // 第二条指令（Write 于第一条完成后 ~2.3s 开始）的回复：3.5s 到达（间隔 1.2s < 空闲 2.5s）
-        port.EnqueueDelayedResponse("ok\r\n", TimeSpan.FromMilliseconds(3500));
+        port.EnqueueDelayedResponse("o", TimeSpan.FromMilliseconds(1900));
+        port.EnqueueDelayedResponse("k\r\n", TimeSpan.FromMilliseconds(2100));
+        // 第二条指令（Write 于第一条完成后 ~2.1s 开始）的回复：2.6s 到达（带换行，到达即判定）
+        port.EnqueueDelayedResponse("ok\r\n", TimeSpan.FromMilliseconds(2600));
         var worker = new MachineWorker(() => port);
 
         var ok = await worker.MoveToAreaAsync(NewRequest(), CancellationToken.None);
 
-        Assert.True(ok);                        // 分片迟到但间隔 < 空闲阈值 → 等齐后成功
+        Assert.True(ok);                        // 分片迟到但间隔 < 帧尾窗口 → 等齐后成功
         Assert.Equal(2, port.Writes.Count);     // 首轮即成功，无重试
     }
 
@@ -355,5 +355,24 @@ public class MachineWorkerTests
 
         await Assert.ThrowsAnyAsync<ArgumentException>(
             () => worker.MoveToAreaAsync(new MoveRequest(machineSerial!, true, MoveTimeEnter), CancellationToken.None));
+    }
+
+    // ---- 审计 MC-08：无换行回复在帧尾窗口内快速判定（不等满空闲超时） ----
+
+    [Fact]
+    public async Task MachineWorker_NoNewlineReply_JudgesWithinFrameTail()
+    {
+        var port = new MockSerialChannel();
+        port.EnqueueResponse("ok\r\n");   // 第一条：带换行立即判定
+        port.EnqueueResponse("OK");       // 第二条：无换行 → 帧尾窗口判定（原实现等满空闲 2.5s）
+        var worker = new MachineWorker(() => port);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var ok = await worker.MoveToAreaAsync(NewRequest(), CancellationToken.None);
+        sw.Stop();
+
+        Assert.True(ok);
+        // 帧尾 300ms 判定 vs 原空闲 2.5s：1.5s 阈值区分
+        Assert.True(sw.ElapsedMilliseconds < 1500, $"无换行回复应在帧尾窗口内判定，实际 {sw.ElapsedMilliseconds}ms");
     }
 }
