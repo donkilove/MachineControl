@@ -16,12 +16,23 @@ public sealed class SerialPortChannel : ISerialChannel
     public void Open(string portName, int baudRate)
     {
         Close();
-        _port = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One)
+        var port = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One)
         {
             ReadTimeout = 1000,
             WriteTimeout = 2000,
         };
-        _port.Open();
+        try
+        {
+            port.Open();
+        }
+        catch
+        {
+            // 审计 MC-04：打开失败释放新建实例，且 _port 不保留失败状态（保持 null）
+            port.Dispose();
+            throw;
+        }
+
+        _port = port;
     }
 
     public void Write(string text)
