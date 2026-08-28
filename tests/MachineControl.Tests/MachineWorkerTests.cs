@@ -322,4 +322,24 @@ public class MachineWorkerTests
         Assert.True(ok);                        // 残留被每条指令前的 ResetInputBuffer 清除
         Assert.Equal(2, port.Writes.Count);     // 无残留干扰 → 首轮即成功，无重试（残留若存活则首轮失败触发重试共 3 条）
     }
+
+    // ---- 审计 MC-06：分片迟到的 ACK 回复不得整体判失败（滑动窗口） ----
+
+    [Fact]
+    public async Task MachineWorker_SplitAckLateSecondChunk_StillSucceeds()
+    {
+        var port = new MockSerialChannel();
+        // 机台回复分片迟到：首段 100ms 到达，末段 2.3s 到达（分片间隔 2.2s < 空闲 2.5s，
+        // 但末段超过原 2s 绝对窗口——原实现会整体判失败）
+        port.EnqueueDelayedResponse("o", TimeSpan.FromMilliseconds(100));
+        port.EnqueueDelayedResponse("k\r\n", TimeSpan.FromMilliseconds(2300));
+        // 第二条指令（Write 于第一条完成后 ~2.3s 开始）的回复：3.5s 到达（间隔 1.2s < 空闲 2.5s）
+        port.EnqueueDelayedResponse("ok\r\n", TimeSpan.FromMilliseconds(3500));
+        var worker = new MachineWorker(() => port);
+
+        var ok = await worker.MoveToAreaAsync(NewRequest(), CancellationToken.None);
+
+        Assert.True(ok);                        // 分片迟到但间隔 < 空闲阈值 → 等齐后成功
+        Assert.Equal(2, port.Writes.Count);     // 首轮即成功，无重试
+    }
 }

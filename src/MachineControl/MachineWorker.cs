@@ -11,7 +11,8 @@ public sealed class MachineWorker
 {
     private const int MaxAttempts = 2;
     private const int RetryDelayMs = 1000;
-    private const int AckWindowMs = 2000;
+    private const int IdleAckWindowMs = 2500;    // 审计 MC-06：空闲超时（距上次收到数据），原 2s 绝对窗口改滑动
+    private const int TotalAckBudgetMs = 4000;   // 审计 MC-06：总预算，防分片持续到达导致无限等待
     private const int ReadPollMs = 100;
     private const int MaxAckLength = 256;   // 审核修复：回复长度上限（正常 "ok" 仅 2 字符）
 
@@ -142,13 +143,15 @@ public sealed class MachineWorker
 
         var sb = new StringBuilder();
         var start = DateTime.UtcNow;
-        while (DateTime.UtcNow - start < TimeSpan.FromMilliseconds(AckWindowMs))
+        var lastData = start;
+        while (DateTime.UtcNow - start < TimeSpan.FromMilliseconds(TotalAckBudgetMs))
         {
             ct.ThrowIfCancellationRequested();
             var chunk = ser.ReadAvailable();
             if (chunk.Length > 0)
             {
                 sb.Append(chunk);
+                lastData = DateTime.UtcNow;   // 审计 MC-06：收到数据刷新空闲计时——分片迟到不再整体判失败
                 if (sb.Length > MaxAckLength)
                 {
                     // 审核修复：回复长度上限，防畸形/恶意长帧刷爆窗口
@@ -160,6 +163,10 @@ public sealed class MachineWorker
                 {
                     break;
                 }
+            }
+            else if (DateTime.UtcNow - lastData >= TimeSpan.FromMilliseconds(IdleAckWindowMs))
+            {
+                break;   // 审计 MC-06：空闲超时（距上次收到数据达到阈值）→ 停止等待
             }
 
             await Task.Delay(ReadPollMs, ct);

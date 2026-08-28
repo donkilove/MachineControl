@@ -10,6 +10,7 @@ public sealed class MockSerialChannel : ISerialChannel
 {
     private readonly Queue<string> _responses = new();
     private readonly List<string> _writes = new();
+    private readonly List<(string Text, DateTimeOffset DueAt)> _delayed = new();
     private string _residual = "";   // 模拟"已到达但未读"的接收缓冲残留（会话开始前缓冲区已有数据）
 
     /// <summary>已写入的全部文本（按写入顺序）</summary>
@@ -28,6 +29,10 @@ public sealed class MockSerialChannel : ISerialChannel
 
     /// <summary>入队一条响应；ReadAvailable 按 FIFO 回放，队列空时返回空串</summary>
     public void EnqueueResponse(string response) => _responses.Enqueue(response);
+
+    /// <summary>入队一条延迟响应：指定延迟后才可读（模拟机台回复分片/迟到的时序）</summary>
+    public void EnqueueDelayedResponse(string response, TimeSpan delay)
+        => _delayed.Add((response, DateTimeOffset.UtcNow + delay));
 
     /// <summary>预置"已到达但未读"的接收残留（模拟会话开始前缓冲区已有数据，如乱码/上次残留）。
     /// 与 EnqueueResponse 的区别：残留会被 ResetInputBuffer 丢弃，未来应答不受影响。</summary>
@@ -55,6 +60,15 @@ public sealed class MockSerialChannel : ISerialChannel
             var head = _residual;
             _residual = "";
             return head;
+        }
+
+        // 延迟响应：到期项按到期顺序拼接返回（同一接收缓冲区语义）
+        var now = DateTimeOffset.UtcNow;
+        var due = _delayed.Where(d => d.DueAt <= now).Select(d => d.Text).ToList();
+        if (due.Count > 0)
+        {
+            _delayed.RemoveAll(d => d.DueAt <= now);
+            return string.Join("", due);
         }
 
         return _responses.Count > 0 ? _responses.Dequeue() : "";

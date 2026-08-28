@@ -61,4 +61,25 @@ public class MockSerialChannelTests
         Assert.Equal("旧数据", mock.ReadAvailable());   // 同一接收缓冲区：先到先读
         Assert.Equal("新应答", mock.ReadAvailable());
     }
+
+    // ---- 审计 MC-06：延迟响应机制（模拟机台回复分片/迟到时序） ----
+
+    [Fact]
+    public void EnqueueDelayedResponse_NotReadableBeforeDue()
+    {
+        var mock = new MockSerialChannel();
+        mock.EnqueueDelayedResponse("ok\r\n", TimeSpan.FromMilliseconds(300));
+
+        Assert.Equal("", mock.ReadAvailable());   // 未到期：不可读
+    }
+
+    [Fact]
+    public void EnqueueDelayedResponse_ReadableAfterDue()
+    {
+        var mock = new MockSerialChannel();
+        mock.EnqueueDelayedResponse("ok\r\n", TimeSpan.FromMilliseconds(100));
+
+        Thread.Sleep(250);   // 等待到期（短延迟，测试成本可控）
+        Assert.Equal("ok\r\n", mock.ReadAvailable());
+    }
 }
