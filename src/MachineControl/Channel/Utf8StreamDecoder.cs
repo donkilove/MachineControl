@@ -19,9 +19,15 @@ internal sealed class Utf8StreamDecoder
         // 多字节字符被拆到相邻批次时，未完成字节保留在 Decoder 状态中，
         // 凑齐后一次性输出，不再产生 U+FFFD 乱码
         _sb.Clear();
-        var chars = new char[count];
+        // 审计复审：输出缓冲须大于输入字节数——1 字节输入可能产出 2 个 UTF-16 字符
+        // （4 字节字符 3+1 拆分时的代理对；残留序列被非法字节打断时的 2×U+FFFD），
+        // 否则 GetChars 抛"output char buffer is too small"
+        var chars = new char[count + 4];
         var charCount = _decoder.GetChars(bytes, 0, count, chars, 0);
         _sb.Append(chars, 0, charCount);
         return _sb.ToString();
     }
+
+    /// <summary>重置解码状态（审计复审：新串口会话/清接收缓冲时调用，防旧会话半截字节残留）</summary>
+    public void Reset() => _decoder.Reset();
 }

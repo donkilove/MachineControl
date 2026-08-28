@@ -12,6 +12,9 @@ public sealed class SerialPortChannel : ISerialChannel
     private SerialPort? _port;
     private readonly Utf8StreamDecoder _decoder = new();   // 审计 MC-05b：跨批次 UTF-8 解码状态
 
+    /// <summary>当前底层串口实例（internal：供测试验证资源管理，审计复审替代反射）</summary>
+    internal SerialPort? Port => _port;
+
     public bool IsOpen => _port?.IsOpen ?? false;
 
     public void Open(string portName, int baudRate)
@@ -34,6 +37,7 @@ public sealed class SerialPortChannel : ISerialChannel
         }
 
         _port = port;
+        _decoder.Reset();   // 审计复审：新会话清解码状态，防旧会话半截字节跨连接残留
     }
 
     public void Write(string text)
@@ -79,7 +83,11 @@ public sealed class SerialPortChannel : ISerialChannel
         return _decoder.Append(buf, read);
     }
 
-    public void ResetInputBuffer() => _port?.DiscardInBuffer();
+    public void ResetInputBuffer()
+    {
+        _port?.DiscardInBuffer();
+        _decoder.Reset();   // 审计复审：清接收缓冲须同步清解码状态（与 Mock 残留清除语义对齐）
+    }
 
     public void Close()
     {

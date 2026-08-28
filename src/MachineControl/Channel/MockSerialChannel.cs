@@ -50,10 +50,25 @@ public sealed class MockSerialChannel : ISerialChannel
         IsOpen = true;
     }
 
-    public void Write(string text) => _writes.Add(text);
+    public void Write(string text)
+    {
+        // 审计复审：与真实 SerialPortChannel.Write 一致——未打开时抛异常
+        if (!IsOpen)
+        {
+            throw new InvalidOperationException("串口未打开");
+        }
+
+        _writes.Add(text);
+    }
 
     public string ReadAvailable()
     {
+        // 审计复审：与真实 SerialPortChannel.ReadAvailable 一致——未打开时返回空串
+        if (!IsOpen)
+        {
+            return "";
+        }
+
         // 真实语义：残留与新应答同在接收缓冲区，先到先读（残留优先、一次读完）
         if (_residual.Length > 0)
         {
@@ -79,6 +94,10 @@ public sealed class MockSerialChannel : ISerialChannel
         // 审计 MC-03：对齐真实 SerialPortChannel.DiscardInBuffer——丢弃"已到达未读"的
         // 接收残留，不影响未来应答（EnqueueResponse 预置的响应队列）
         _residual = "";
+        // 审计复审：已到期但未读的延迟响应同样属"已到达未读"，随重置丢弃；
+        // 未到期的保留（尚未到达，不受影响）
+        var now = DateTimeOffset.UtcNow;
+        _delayed.RemoveAll(d => d.DueAt <= now);
     }
 
     public void Close() => IsOpen = false;

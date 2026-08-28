@@ -61,4 +61,49 @@ public class Utf8StreamDecoderTests
         Assert.Equal("", c);          // 不完整序列不输出
         Assert.Equal("测C", d);
     }
+
+    // ---- 审计复审：输出缓冲溢出防护（1 字节输入可能产出 2 个 UTF-16 字符） ----
+
+    [Fact]
+    public void Append_SurrogatePairSplit_NoOverflow()
+    {
+        var decoder = new Utf8StreamDecoder();
+        var bytes = Encoding.UTF8.GetBytes("😀");   // U+1F600，UTF-8 四字节 F0 9F 98 80
+
+        var first = decoder.Append(bytes, 3);   // 前 3 字节：不完整
+        var last = decoder.Append(bytes[3..], 1);   // 最后 1 字节：凑齐 → 代理对 2 个 char
+
+        Assert.Equal("", first);
+        Assert.Equal("😀", last);   // 1 字节输入产出 2 个 UTF-16 字符，缓冲不得溢出
+    }
+
+    [Fact]
+    public void Append_ResidualInterruptedByInvalid_NoOverflow()
+    {
+        var decoder = new Utf8StreamDecoder();
+        byte[] firstPart = [0xE6];   // "测" 首字节（不完整）
+        byte[] invalid = [0xFF];     // 非法字节：打断残留序列 → 2 个 U+FFFD
+
+        var first = decoder.Append(firstPart, 1);
+        var second = decoder.Append(invalid, 1);
+
+        Assert.Equal("", first);
+        Assert.Equal("\uFFFD\uFFFD", second);   // 残留 E6 被替换 + FF 替换 = 2 字符
+    }
+
+    // ---- 审计复审：Reset 清解码状态（新会话/清缓冲） ----
+
+    [Fact]
+    public void Reset_ClearsPendingDecoderState()
+    {
+        var decoder = new Utf8StreamDecoder();
+        var bytes = Encoding.UTF8.GetBytes("测");
+
+        var half = decoder.Append(bytes, 1);   // 残留 2 字节在 Decoder 状态中
+        decoder.Reset();                        // 模拟新会话/清缓冲
+        var fresh = decoder.Append(bytes, 3);   // 完整字节应按新序列解码
+
+        Assert.Equal("", half);
+        Assert.Equal("测", fresh);   // 不与旧残留拼接成乱码
+    }
 }

@@ -33,6 +33,7 @@ public class MockSerialChannelTests
     public void ResetInputBuffer_DiscardsPreloadedResidual()
     {
         var mock = new MockSerialChannel();
+        mock.Open("COM4", 9600);   // 审计复审：Mock 对齐真实通道 IsOpen 语义（Read/Write 未打开不可用）
         mock.PreloadResidual("残留\r\n");
 
         mock.ResetInputBuffer();
@@ -44,6 +45,7 @@ public class MockSerialChannelTests
     public void ResetInputBuffer_KeepsFutureResponses()
     {
         var mock = new MockSerialChannel();
+        mock.Open("COM4", 9600);   // 审计复审：Mock 对齐真实通道 IsOpen 语义（Read/Write 未打开不可用）
         mock.EnqueueResponse("ok\r\n");
 
         mock.ResetInputBuffer();
@@ -55,6 +57,7 @@ public class MockSerialChannelTests
     public void ReadAvailable_ReturnsResidualBeforeResponses()
     {
         var mock = new MockSerialChannel();
+        mock.Open("COM4", 9600);   // 审计复审：Mock 对齐真实通道 IsOpen 语义（Read/Write 未打开不可用）
         mock.PreloadResidual("旧数据");
         mock.EnqueueResponse("新应答");
 
@@ -68,6 +71,7 @@ public class MockSerialChannelTests
     public void EnqueueDelayedResponse_NotReadableBeforeDue()
     {
         var mock = new MockSerialChannel();
+        mock.Open("COM4", 9600);   // 审计复审：Mock 对齐真实通道 IsOpen 语义（Read/Write 未打开不可用）
         mock.EnqueueDelayedResponse("ok\r\n", TimeSpan.FromMilliseconds(300));
 
         Assert.Equal("", mock.ReadAvailable());   // 未到期：不可读
@@ -77,9 +81,39 @@ public class MockSerialChannelTests
     public void EnqueueDelayedResponse_ReadableAfterDue()
     {
         var mock = new MockSerialChannel();
+        mock.Open("COM4", 9600);   // 审计复审：Mock 对齐真实通道 IsOpen 语义（Read/Write 未打开不可用）
         mock.EnqueueDelayedResponse("ok\r\n", TimeSpan.FromMilliseconds(100));
 
         Thread.Sleep(250);   // 等待到期（短延迟，测试成本可控）
         Assert.Equal("ok\r\n", mock.ReadAvailable());
     }
+
+    // ---- 审计复审：ResetInputBuffer 丢弃已到期未读的延迟响应 ----
+
+    [Fact]
+    public void ResetInputBuffer_DiscardsDueDelayedResponses()
+    {
+        var mock = new MockSerialChannel();
+        mock.Open("COM4", 9600);   // 审计复审：Mock 对齐真实通道 IsOpen 语义（Read/Write 未打开不可用）
+        mock.EnqueueDelayedResponse("ok\r\n", TimeSpan.FromMilliseconds(50));
+
+        Thread.Sleep(150);   // 已到期但未读
+        mock.ResetInputBuffer();
+
+        Assert.Equal("", mock.ReadAvailable());   // 到期未读项随重置丢弃
+    }
+
+    [Fact]
+    public void ResetInputBuffer_KeepsPendingDelayedResponses()
+    {
+        var mock = new MockSerialChannel();
+        mock.Open("COM4", 9600);   // 审计复审：Mock 对齐真实通道 IsOpen 语义（Read/Write 未打开不可用）
+        mock.EnqueueDelayedResponse("ok\r\n", TimeSpan.FromMilliseconds(200));
+
+        mock.ResetInputBuffer();   // 未到期：尚未到达，不受影响
+
+        Thread.Sleep(300);   // 等待到期
+        Assert.Equal("ok\r\n", mock.ReadAvailable());
+    }
 }
+
