@@ -11,14 +11,14 @@
 
 - **指令序列** —— A 区（`AT+IO=00` → `AT+IO=01`）/ B 区（`AT+IO=00` → `AT+IO=08`）移动指令序列
 - **ACK 判定** —— trim 后大小写不敏感等于 `ok`（与原版 `response.lower() == "ok"` 一致）
-- **移动执行器 `MachineWorker`** —— 逐条指令发送 + ACK 等待（空闲 2.5s 滑动窗口 + 帧尾 300ms + 4s 总预算：分片迟到可等齐、无换行回复帧尾快速判定），成功后等待到位时间，整轮最多尝试 2 次（含 1s 重试间隔），协作式取消
+- **移动执行器 `MachineWorker`** —— 逐条指令发送 + ACK 等待（空闲 2.5s 滑动窗口 + 帧尾 300ms + 4s 总预算：分片迟到可等齐、无换行回复帧尾快速判定；**分片间隔上限约 300ms**），成功后等待到位时间，整轮最多尝试 2 次（含 1s 重试间隔），协作式取消
 - **回复长度上限** —— 256 字符，防畸形/恶意长帧
 - **可注入串口通道** —— `ISerialChannel` 抽象 + `SerialPortChannel`（System.IO.Ports）真实实现 + `MockSerialChannel` 可编程模拟（离线开发/测试）
 
 ## 安装
 
 ```bash
-dotnet add package MachineControl --version 0.3.0 \
+dotnet add package MachineControl --version 0.3.1 \
   --source "https://nuget.pkg.github.com/donkilove/index.json"
 ```
 
@@ -61,8 +61,8 @@ var worker = new MachineWorker(() => mock);
 ### 重试语义与固件行为
 
 - **重试语义**：移动执行整轮最多尝试 2 次（含 1s 重试间隔）；**任一步失败即整轮从头重发**整个序列（`AT+IO=00` 复位指令会再次发送）。
-- **固件行为（已实机确认）**：机台在移动/运动状态下**忽略新到达的指令**（含重复的 `AT+IO=00` 复位指令）——整轮重发不会造成「运动中重复复位」的物理动作重放；机台忙时重试的指令被忽略属预期行为。
-- **重复执行边界**：ACK 在 2s 窗口内未按时到达会被判失败并重发对应指令；若指令实际已被机台执行（仅响应迟到），重发会导致指令重复执行（at-least-once 语义），移动指令的重复执行是否无害同样依赖固件幂等。
+- **固件行为（经固件方确认，2026-08-28）**：机台在移动/运动状态下**忽略新到达的指令**（含重复的 `AT+IO=00` 复位指令）——整轮重发不会造成「运动中重复复位」的物理动作重放；机台忙时重试的指令被忽略属预期行为。
+- **重复执行边界**：ACK 在等待预算内（空闲 2.5s + 帧尾 300ms + 总预算 4s）未按时到达会被判失败并重发指令（整轮从头重发，见上）；若指令实际已被机台执行（仅响应迟到），重发会导致指令重复执行（at-least-once 语义），移动指令的重复执行是否无害同样依赖固件幂等。
 
 完整协议规格见 BurnMachineHost 仓库 `docs/串口协议规格.md` §3。
 
@@ -90,7 +90,7 @@ src/MachineControl/            类库（net10.0，NuGet 包 MachineControl）
     ├── ISerialChannel.cs      通道抽象（可注入自定义实现）
     ├── SerialPortChannel.cs   System.IO.Ports 实现
     └── MockSerialChannel.cs   可编程模拟通道
-tests/MachineControl.Tests/    协议 + 执行器测试（18 个）
+tests/MachineControl.Tests/    协议 + 执行器测试（53 个）
 ```
 
 ## 许可协议
